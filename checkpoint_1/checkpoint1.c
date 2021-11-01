@@ -14,9 +14,8 @@
 #include <ctype.h>
 #include <time.h>
 
-#define FILENAME "input_trace.txt"
-//DEBUG program if 1, otherwise set to 0.
-#define DEBUG 1
+// Global variable
+int DEBUG;  //DEBUG program if 1, otherwise set to 0.
 
  void readInputDataFile(FILE *filePointer, unsigned long long inputData[100][3], int *rowsPtr) {
     //This function reads an input file to extract the data in an array called inputData.
@@ -59,13 +58,38 @@
 int main()
 {
     unsigned long long inputData[100][3]; //Variable to hold up to 100 lines/rows of <time><operation><hexadecimal address>.
+    char fileName[50]; //string to hold user's file name input.
+    char response[10]; //character to hold user option for debugging
     FILE *filePointer; //Pointer for trace file.
     int rows = 0; //How many rows (or lines) are read from the trace file.
     int *rowsPtr = &rows;
 
-    if ((filePointer = fopen(FILENAME, "r")) == NULL) {
+    //Ask for file name and store it in variable fileName.
+    printf("\nEnter name of data file to read (with extension): ");
+    if (fgets(fileName, 50, stdin) != NULL) {
+        fileName[strcspn(fileName, "\n")] = 0; //Get rid of new line.
+    }
+
+    if ((filePointer = fopen(fileName, "r")) == NULL) {
         printf("ERROR: Could not open input file.\n");
         return(1); //Quit program
+    }
+
+    //Ask for user if they want to enable debugging.
+    printf("\nRun program with debugging code? (Y/N): ");
+    if (fgets(response, 10, stdin) != NULL) {
+        response[strcspn(response, "\n")] = 0; //Get rid of new line.
+    }
+
+    if (response[0] == 'y' || response[0] == 'Y') {
+        DEBUG = 1;
+    }
+    else if (response[0] == 'n' || response[0] == 'N') {
+        DEBUG = 0;
+    }
+    else {
+        printf("ERROR: Invalid debug option response.\n");
+        return(2); //Quit
     }
 
     readInputDataFile(filePointer, inputData, rowsPtr);
