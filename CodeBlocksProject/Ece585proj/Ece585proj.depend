@@ -1,0 +1,22 @@
+# depslib dependency file v1.0
+1635787456 source:c:\users\jonat\onedrive\documents\github\fall-21-ece411-t12\codeblocksproject\ece585proj\main.c
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<ctype.h>
+	<time.h>
+
+1635790057 source:c:\users\jonat\onedrive\documents\github\fall-21-ece411-t12\codeblocksproject\ece585proj\checkpoint1.c
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<ctype.h>
+	<time.h>
+
+1635790057 source:c:\users\jonat\onedrive\documents\github\fece485-585-fall-project-\codeblocksproject\ece585proj\checkpoint1.c
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<ctype.h>
+	<time.h>
+
