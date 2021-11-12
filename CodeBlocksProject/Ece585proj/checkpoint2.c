@@ -93,10 +93,10 @@ int main()
     while(1) {
         //Make sure we stop reading from the array of instructions when at the last line from the file.
         //Also make sure queue size is not full (max of 16).
-        if (lineIndex < rows && queue_size <= 16) {
+        if (lineIndex < rows) {
             entry_t = inputData[lineIndex][0];
             //Check if its time to execute the next instruction.
-            if (clk == entry_t) {
+            if (clk >= entry_t && queue_size < 16) {
                 printf("Entry %d is inserted into queue at time %d\n", lineIndex, clk);
                 enqueue(clk, lineIndex);
                 lineIndex++;
@@ -113,7 +113,6 @@ int main()
                 //Check if this is the last instruction in the queue.
                 if (front->row == (rows-1)) {
                     dequeue();
-                    queue_size--;
                     break; //Exit program.
                 }
                 else {
