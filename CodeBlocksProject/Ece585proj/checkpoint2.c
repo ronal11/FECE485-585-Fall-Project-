@@ -21,7 +21,8 @@ int clk;
 //For the queue------------------------------------------------------------------------------------------
 struct node
 {
-    int data;
+    int removal_t; //The time in CPU clock cycles of when item is removed from queue
+    int row; //The line index from the file (to identify which memory request).
 //     DATA data;
     struct node *next;
 };
@@ -30,7 +31,7 @@ struct node *front = NULL;
 struct node *rear = NULL;
 
 void display();
-void enqueue(int);
+void enqueue(int,int);
 void dequeue();
 //------------------------------------------------------------------------------------------
 
@@ -85,9 +86,44 @@ int main()
 
     //Begin clock clock cycles.
     clk = 0;
-    while(1) {
+    int lineIndex = 0;
+    int entry_t;
 
+    while(1) {
+        //Make sure we stop reading from the array of instructions when at the last line from the file.
+        if (lineIndex < rows) {
+            entry_t = inputData[lineIndex][0];
+            //Check if its time to execute the next instruction.
+            if (clk == entry_t) {
+                printf("Entry %d is inserted into queue at time %d\n", lineIndex, clk);
+                enqueue(clk, lineIndex);
+                lineIndex++;
+                clk++;
+                continue;
+            }
+        }
+        //Check if there is something in the queue.
+        if (front != NULL) {
+            //Check if it's time to remove an item from the queue.
+            if (clk == front->removal_t) {
+                printf("Entry %d is removed from queue at time %d\n", front->row, clk);
+                //Check if this is the last instruction in the queue.
+                if (front->row == (rows-1)) {
+                    dequeue();
+                    break; //Exit program.
+                }
+                else {
+                    dequeue();
+                    clk++;
+                    continue;
+                }
+            }
+        }
+        //If its not time to execute anything and nothing is in queue, advance 1 clock cycle.
+        clk++;
     }
+
+    printf("program complete\n");
 
     fclose(filePointer);
 
@@ -131,10 +167,11 @@ int main()
     }
  }
 
- void enqueue(int item)
+ void enqueue(int timeOfExecution, int row)
 {
     struct node *nptr = malloc(sizeof(struct node));
-    nptr->data = item;
+    nptr->removal_t = timeOfExecution + 100;
+    nptr->row = row;
     nptr->next = NULL;
     if (rear == NULL)
     {
@@ -155,7 +192,7 @@ void display()
     printf("\n");
     while (temp != NULL)
     {
-        printf("%d\t", temp->data);
+        //printf("%d\t", temp->data);
         temp = temp->next;
     }
 }
@@ -171,7 +208,6 @@ void dequeue()
         struct node *temp;
         temp = front;
         front = front->next;
-        printf("\n\n%d deleted", temp->data);
         free(temp);
     }
 }
