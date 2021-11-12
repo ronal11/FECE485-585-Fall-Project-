@@ -47,6 +47,11 @@ int main()
     FILE *filePointer; //Pointer for trace file.
     int rows = 0; //How many rows (or lines) are read from the trace file.
     int *rowsPtr = &rows;
+    const char * operation[] = {
+        "READ",
+        "WRITE",
+        "FETCH",
+    };
 
     //Ask for file name and store it in variable fileName.
     printf("\nEnter name of data file to read (with extension): ");
@@ -93,11 +98,12 @@ int main()
     while(1) {
         //Make sure we stop reading from the array of instructions when at the last line from the file.
         //Also make sure queue size is not full (max of 16).
-        if (lineIndex < rows && queue_size <= 16) {
+        if (lineIndex < rows) {
             entry_t = inputData[lineIndex][0];
             //Check if its time to execute the next instruction.
-            if (clk == entry_t) {
-                printf("Entry %d is inserted into queue at time %d\n", lineIndex, clk);
+            if (clk >= entry_t && queue_size < 16) {
+                //printf("Entry %d is inserted into queue at time %d\n", lineIndex, clk);
+                printf("Clock:%-4d INSERTED: [%4I64u] [%6s] [%11I64X]\n", clk, inputData[lineIndex][0], operation[inputData[lineIndex][1]], inputData[lineIndex][2] );
                 enqueue(clk, lineIndex);
                 lineIndex++;
                 clk++;
@@ -109,11 +115,11 @@ int main()
         if (front != NULL) {
             //Check if it's time to remove an item from the queue.
             if (clk >= front->removal_t) {
-                printf("Entry %d is removed from queue at time %d\n", front->row, clk);
+                //printf("Entry %d is removed from queue at time %d\n", front->row, clk);
+                printf("Clock:%-4d  REMOVED: [%4I64u] [%6s] [%11I64X]\n", clk, inputData[front->row][0], operation[inputData[front->row][1]], inputData[front->row][2] );
                 //Check if this is the last instruction in the queue.
                 if (front->row == (rows-1)) {
                     dequeue();
-                    queue_size--;
                     break; //Exit program.
                 }
                 else {
