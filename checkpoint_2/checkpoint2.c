@@ -88,10 +88,12 @@ int main()
     clk = 0;
     int lineIndex = 0;
     int entry_t;
+    int queue_size = 0;
 
     while(1) {
         //Make sure we stop reading from the array of instructions when at the last line from the file.
-        if (lineIndex < rows) {
+        //Also make sure queue size is not full (max of 16).
+        if (lineIndex < rows && queue_size <= 16) {
             entry_t = inputData[lineIndex][0];
             //Check if its time to execute the next instruction.
             if (clk == entry_t) {
@@ -99,21 +101,24 @@ int main()
                 enqueue(clk, lineIndex);
                 lineIndex++;
                 clk++;
+                queue_size++;
                 continue;
             }
         }
         //Check if there is something in the queue.
         if (front != NULL) {
             //Check if it's time to remove an item from the queue.
-            if (clk == front->removal_t) {
+            if (clk >= front->removal_t) {
                 printf("Entry %d is removed from queue at time %d\n", front->row, clk);
                 //Check if this is the last instruction in the queue.
                 if (front->row == (rows-1)) {
                     dequeue();
+                    queue_size--;
                     break; //Exit program.
                 }
                 else {
                     dequeue();
+                    queue_size--;
                     clk++;
                     continue;
                 }
