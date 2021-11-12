@@ -1,16 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef struct {
-    int info;
-    unsigned long long hexNum;
+// typedef struct {
+//     int info;
+//     unsigned long long hexNum;
     
-} DATA;
+// } DATA;
 
 struct node
 {
     int data;
-    // DATA data;
+//     DATA data;
     struct node *next;
 };
 
