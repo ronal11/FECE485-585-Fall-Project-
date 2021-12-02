@@ -18,40 +18,37 @@
 int DEBUG;  //DEBUG program if 1, otherwise set to 0.
 int clk;
 
-//For the queue------------------------------------------------------------------------------------------
-struct node
-{
-    int removal_t; //The time in CPU clock cycles of when item is removed from queue
-    int row; //The line index from the file (to identify which memory request).
-//     DATA data;
+struct node { //For the queue
+    int qentry_t; //The time in CPU clock cycles of when item is actually added into the queue
+    unsigned long long request_info[3]; //The information from the request is held in this variable (ie time, operation, hexadecimal address)
+
     struct node *next;
 };
 
 struct node *front = NULL;
 struct node *rear = NULL;
 
+//functions
 void display();
-void enqueue(int,int);
+void enqueue(unsigned long long[], int);
 void dequeue();
-//------------------------------------------------------------------------------------------
+int readOneLine(FILE *filePointer, unsigned long long request[3]);
+int MagicHappensHere(int clk, struct node *front, int queue_size);
 
-//For the trace file array information
- void readInputDataFile(FILE *filePointer, unsigned long long inputData[100][3], int *rowsPtr);
+const char * operation[] = {
+        "READ",
+        "WRITE",
+        "FETCH",
+};
  //------------------------------------------------------------------------------------------
 
 int main()
 {
-    unsigned long long inputData[100][3]; //Variable to hold up to 100 lines/rows of <time><operation><hexadecimal address>.
+    unsigned long long request[3]; //Variable to hold one row/line with info of <time><operation><hexadecimal address>.
     char fileName[50]; //string to hold user's file name input.
     char response[10]; //character to hold user option for debugging
     FILE *filePointer; //Pointer for trace file.
     int rows = 0; //How many rows (or lines) are read from the trace file.
-    int *rowsPtr = &rows;
-    const char * operation[] = {
-        "READ",
-        "WRITE",
-        "FETCH",
-    };
 
     //Ask for file name and store it in variable fileName.
     printf("\nEnter name of data file to read (with extension): ");
@@ -81,57 +78,57 @@ int main()
         return(2); //Quit
     }
 
-    readInputDataFile(filePointer, inputData, rowsPtr);
-
-    if (DEBUG) {
-        for(int i=0; i<rows; i++) {
-            printf("%I64u, %I64u, %I64X\n", inputData[i][0], inputData[i][1], inputData[i][2]);
+    while ( readOneLine(filePointer, request) == 0) {
+        if (DEBUG) {
+            printf("%I64u, %I64u, %I64X\n", request[0], request[1], request[2]);
         }
+        rows++;
     }
+    if (DEBUG) {
+        printf("%d lines read in total!\n", rows);
+    }
+
+    fseek(filePointer, 0, SEEK_SET); //Reset file pointer to top of file to read through again.
 
     //Begin clock clock cycles.
     clk = 0;
-    int lineIndex = 0;
-    int entry_t;
+    //int request_t = 0;
     int queue_size = 0;
+    int pendingReq = 0;
+    int end_of_file = 0;
 
-    while(1) {
-        //Make sure we stop reading from the array of instructions when at the last line from the file.
-        //Also make sure queue size is not full (max of 16).
-        if (lineIndex < rows) {
-            entry_t = inputData[lineIndex][0];
-            //Check if its time to execute the next instruction.
-            if (clk >= entry_t && queue_size < 16) {
-                //printf("Entry %d is inserted into queue at time %d\n", lineIndex, clk);
-                printf("Clock:%-4d INSERTED: [%4I64u] [%6s] [%11I64X]\n", clk, inputData[lineIndex][0], operation[inputData[lineIndex][1]], inputData[lineIndex][2] );
-                enqueue(clk, lineIndex);
-                lineIndex++;
-                clk++;
-                queue_size++;
-                continue;
-            }
-        }
-        //Check if there is something in the queue.
-        if (front != NULL) {
-            //Check if it's time to remove an item from the queue.
-            if (clk >= front->removal_t) {
-                //printf("Entry %d is removed from queue at time %d\n", front->row, clk);
-                printf("Clock:%-4d  REMOVED: [%4I64u] [%6s] [%11I64X]\n", clk, inputData[front->row][0], operation[inputData[front->row][1]], inputData[front->row][2] );
-                //Check if this is the last instruction in the queue.
-                if (front->row == (rows-1)) {
-                    dequeue();
-                    break; //Exit program.
+    while (1) {
+        if (queue_size < 16) {  //If the queue is not full
+            if (pendingReq == 0) { //If no pending request
+                if (readOneLine(filePointer, request) == 0) { //Next request is read from file
+                    pendingReq = 1;
                 }
-                else {
-                    dequeue();
-                    queue_size--;
-                    clk++;
-                    continue;
+                else { //EOF is reached
+                    end_of_file = 1;
+                }
+            }
+            if (pendingReq == 1) { //If we have a pending request
+                if (queue_size == 0) { //If queue is empty
+                    if (clk < request[0]) { //If theres a pending request and nothing in the queue, just advance time to request time
+                        clk = request[0];
+                    }
+                }
+                if (clk >= request[0]) {
+                    printf("Clock:%-4d INSERTED: [%4I64u] [%6s] [%11I64X]\n", clk, request[0], operation[request[1]], request[2] );
+                    enqueue(request, clk); //Add the request to the queue
+                    queue_size++;
+                    pendingReq = 0;
                 }
             }
         }
-        //If its not time to execute anything and nothing is in queue, advance 1 clock cycle.
-        clk++;
+        if (queue_size > 0) { //If queue is not empty
+            queue_size = MagicHappensHere(clk, front, queue_size);
+            clk++;
+        }
+        if (queue_size == 0 && pendingReq == 0 && end_of_file == 1) { //If nothing is in the queue and there is not pending request and you
+                                                                      // reached the EOF, then the program is finished running.
+            break; //Break out of the while loop
+        }
     }
 
     printf("program complete\n");
@@ -141,48 +138,59 @@ int main()
     return 0;
 }
 
- void readInputDataFile(FILE *filePointer, unsigned long long inputData[100][3], int *rowsPtr) {
-    //This function reads an input file to extract the data in an array called inputData.
-    // The text file has the format <time><operation><hexadecimal address>.
+ int readOneLine(FILE *filePointer, unsigned long long request[3]) {
+    //This function reads an input file and extracts one line (the next line in the file) everytime it is called.
+    // This line is temporarily held in request.
+    //The text file has the format <time><operation><hexadecimal address>.
+    //The output is a 0 if a line is successfully read, otherwise outputs 1 if EOF is reached.
 
-    char lineValues[30]; //This string will hold a single line at a time in the text file.
+    char lineValue[30]; //This string will hold a single line at a time in the text file.
     unsigned long long hexNum; //This variable is 64bits to read the hex value from the text file.
 
-    //Loop every line in the file to extract data until NULL is returned, indicating end of the file.
-    int i = 0; //This variable holds how many rows (or lines) we go through.
-    while (1) {
-        if (fgets(lineValues, 30, filePointer) != NULL) {
-            char *token = strtok(lineValues, " "); //Create a pointer called token to hold the individual items in the string array
+        if (fgets(lineValue, 30, filePointer) != NULL) {
+            char *token = strtok(lineValue, " "); //Create a pointer called token to hold the individual items in the string array
                                                // from a single line.  This will create 3 separated tokens for time, operation, & hex address.
             int k = 0;  //This variable indicates the column index (are we reading time, operation, or hex address?).
             while (token != NULL) {
                 if ( k == 2) { //Special case if we are reading the hex address token.
                     sscanf(token, "%I64X", &hexNum);
-                    // printf("lineNum:%I64u.\n", hexNum); //Test
-                    inputData[i][k++] = hexNum;
+                    request[k++] = hexNum;
                 }
                 else {
-                    sscanf(token, "%I64u", &inputData[i][k++]);
+                    sscanf(token, "%I64u", &request[k++]);
                 }
                 token = strtok(NULL, " ");
             }
-            i = i + 1; //Increment the row.
+            return 0; //One line in the file was successfully read
         }
         else {
-            *rowsPtr = i;
-            if (DEBUG) {
-                printf("%d lines read in total!\n", *rowsPtr);
-            }
-            break;
+            return 1; //No more lines in the file to read
         }
-    }
  }
 
- void enqueue(int timeOfExecution, int row)
+ int MagicHappensHere(int clk, struct node *front, int queue_size) {
+    static unsigned int counter = 0;
+    if (counter >= 100) {
+        printf("Clock:%-4d  REMOVED: [%4I64u] [%6s] [%11I64X]\n", clk, front->request_info[0], operation[front->request_info[1]], front->request_info[2] );
+        dequeue();
+        queue_size--;
+        counter = 0;
+    }
+    else {
+        counter++;
+    }
+    return queue_size;
+ }
+
+ void enqueue(unsigned long long request[3], int clk)
 {
     struct node *nptr = malloc(sizeof(struct node));
-    nptr->removal_t = timeOfExecution + 100;
-    nptr->row = row;
+    nptr->qentry_t = clk; //Remember what CPU clock time the request was actually inserted into the queue
+    //Hold a copy of the request's information (ie time, operation, hexadecimal address)
+    nptr->request_info[0] = request[0];
+    nptr->request_info[1] = request[1];
+    nptr->request_info[2] = request[2];
+
     nptr->next = NULL;
     if (rear == NULL)
     {
