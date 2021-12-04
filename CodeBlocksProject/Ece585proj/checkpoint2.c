@@ -28,12 +28,22 @@ struct node { //For the queue
 struct node *front = NULL;
 struct node *rear = NULL;
 
+typedef struct Bit_Field {
+    unsigned int byte_offset:3;
+    unsigned int lower_col:3;
+    unsigned int bank_group:2;
+    unsigned int bank:2;
+    unsigned int upper_col:8;
+    unsigned int row:15;
+} hex_field_s; //when writing code, initialize doing 'hex_field_s var_name = blah'
+
 //functions
 void display();
 void enqueue(unsigned long long[], int);
 void dequeue();
 int readOneLine(FILE *filePointer, unsigned long long request[3]);
 int MagicHappensHere(int clk, struct node *front, int queue_size);
+hex_field_s address_map(unsigned long long address);
 
 const char * operation[] = {
         "READ",
@@ -96,6 +106,11 @@ int main()
     int queue_size = 0;
     int pendingReq = 0;
     int end_of_file = 0;
+    hex_field_s req_add_field;
+
+    //readOneLine(filePointer, request);
+    //req_add_field = address_map(request[2]);
+    //printf("lower col=[%1X], BG=[%1X], Bank=[%1X], Upper col=[%2X], row=[%4X]\n", req_add_field.lower_col, req_add_field.bank_group, req_add_field.bank, req_add_field.upper_col, req_add_field.row);
 
     while (1) {
         if (queue_size < 16) {  //If the queue is not full
@@ -182,6 +197,19 @@ int main()
     return queue_size;
  }
 
+ hex_field_s address_map(unsigned long long address) {
+    hex_field_s field;
+
+    field.byte_offset =       (address) & 0x7;
+    field.lower_col   =  (address >> 3) & 0x7;
+    field.bank_group  =  (address >> 6) & 0x3;
+    field.bank        =  (address >> 8) & 0x3;
+    field.upper_col   = (address >> 10) & 0xFF;
+    field.row         = (address >> 18) & 0x7FFF;
+
+    return field;
+ }
+
  void enqueue(unsigned long long request[3], int clk)
 {
     struct node *nptr = malloc(sizeof(struct node));
@@ -211,7 +239,6 @@ void display()
     printf("\n");
     while (temp != NULL)
     {
-        //printf("%d\t", temp->data);
         temp = temp->next;
     }
 }
