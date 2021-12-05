@@ -32,9 +32,9 @@ struct request_info {
 
     int origin_arrival;                         // contains when the operation was requested by the CPU
     int timeSinceArrival;                       // time since request was added in the queue, gets incremented each DIMM cycle until request is done
-    int curr_op;                                // operation that's being serviced (RD = 0, WR, = 1, F = 3)
+    int curr_op;                                // operation that's being serviced (RD = 0, WR, = 1, F = 2)
     int prevCommandReq;                         // previous command issued to this request
-    int timeLapsedReq;                          // time lapsed since previous command to this request, gets incremented until new command is issued, at which it is reset
+    int timeLapsedReq;                          // time lapsed since previous command was issued to this request, gets incremented until new command is issued, at which it is reset
 
 
 };
