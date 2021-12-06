@@ -20,6 +20,7 @@ int clk;
 
 struct node { //For the queue
     int qentry_t; //The time in CPU clock cycles of when item is actually added into the queue
+    int counter; //Used to count how long the request has been in the queue
     unsigned long long request_info[3]; //The information from the request is held in this variable (ie time, operation, hexadecimal address)
 
     struct node *next;
@@ -108,9 +109,15 @@ int main()
     int end_of_file = 0;
     hex_field_s req_add_field;
 
+
+
     //readOneLine(filePointer, request);
-    //req_add_field = address_map(request[2]);
-    //printf("lower col=[%1X], BG=[%1X], Bank=[%1X], Upper col=[%2X], row=[%4X]\n", req_add_field.lower_col, req_add_field.bank_group, req_add_field.bank, req_add_field.upper_col, req_add_field.row);
+    req_add_field = address_map(0x01FF970AA);
+    printf("lower col=[0x%1X], BG=[0x%1X], Bank=[0x%1X], Upper col=[0x%2X], row=[0x%4X]\n", req_add_field.lower_col, req_add_field.bank_group, req_add_field.bank, req_add_field.upper_col, req_add_field.row);
+    req_add_field = address_map(0x01FF97080);
+    printf("lower col=[0x%1X], BG=[0x%1X], Bank=[0x%1X], Upper col=[0x%2X], row=[0x%4X]\n", req_add_field.lower_col, req_add_field.bank_group, req_add_field.bank, req_add_field.upper_col, req_add_field.row);
+    req_add_field = address_map(0x10FFFFF00);
+    printf("lower col=[0x%1X], BG=[0x%1X], Bank=[0x%1X], Upper col=[0x%2X], row=[0x%4X]\n", req_add_field.lower_col, req_add_field.bank_group, req_add_field.bank, req_add_field.upper_col, req_add_field.row);
 
     while (1) {
         if (queue_size < 16) {  //If the queue is not full
@@ -184,16 +191,23 @@ int main()
  }
 
  int MagicHappensHere(int clk, struct node *front, int queue_size) {
-    static unsigned int counter = 0;
-    if (counter >= 100) {
-        printf("Clock:%-4d  REMOVED: [%4I64u] [%6s] [%11I64X]\n", clk, front->request_info[0], operation[front->request_info[1]], front->request_info[2] );
+    struct node *temp;
+    temp = front;
+
+    while (temp != NULL)
+    {
+        if (temp->counter >= 100) {
+        printf("Clock:%-4d  REMOVED: [%4I64u] [%6s] [%11I64X]\n", clk, temp->request_info[0], operation[temp->request_info[1]], temp->request_info[2] );
         dequeue();
         queue_size--;
-        counter = 0;
+        //temp->counter = 0;
+        }
+        else {
+            temp->counter++;
+        }
+        temp = temp->next;
     }
-    else {
-        counter++;
-    }
+
     return queue_size;
  }
 
@@ -214,6 +228,7 @@ int main()
 {
     struct node *nptr = malloc(sizeof(struct node));
     nptr->qentry_t = clk; //Remember what CPU clock time the request was actually inserted into the queue
+    nptr->counter = 0; //Set amount of time request has been in the queue to 0 intially
     //Hold a copy of the request's information (ie time, operation, hexadecimal address)
     nptr->request_info[0] = request[0];
     nptr->request_info[1] = request[1];

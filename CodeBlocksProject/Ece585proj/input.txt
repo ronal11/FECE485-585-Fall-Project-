@@ -1,0 +1,8 @@
+30 0 0x01FF970AA
+31 1 0x01FF97080
+32 2 0x10FFFFF00
+
+OPEN PAGE POLICY
+Page hit: Rd + burst
+Page miss: PRE + ACT + Rd + burst
+Page empty: ACT + Rd + burst
