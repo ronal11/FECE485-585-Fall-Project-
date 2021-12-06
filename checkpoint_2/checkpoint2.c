@@ -14,9 +14,30 @@
 #include <ctype.h>
 #include <time.h>
 
+#define ACT    0               // macros for commands in order to save info
+#define PRE    1
+#define RD     2
+#define WR     3
+
+#define BGROUP 4               // number of bank groups
+#define BANK   4               // number of banks per bank group
+
+
 // Global variable
 int DEBUG;  //DEBUG program if 1, otherwise set to 0.
 int clk;
+
+// holds the information available to only each request in the queue
+struct request_info {
+
+    int origin_arrival;                         // contains when the operation was requested by the CPU
+    int timeSinceArrival;                       // time since request was added in the queue, gets incremented each DIMM cycle until request is done
+    int curr_op;                                // operation that's being serviced (RD = 0, WR, = 1, F = 2)
+    int prevCommandReq;                         // previous command issued to this request
+    int timeLapsedReq;                          // time lapsed since previous command was issued to this request, gets incremented until new command is issued, at which it is reset
+
+
+};
 
 struct node { //For the queue
     int qentry_t; //The time in CPU clock cycles of when item is actually added into the queue
@@ -24,6 +45,15 @@ struct node { //For the queue
     unsigned long long request_info[3]; //The information from the request is held in this variable (ie time, operation, hexadecimal address)
 
     struct node *next;
+};
+
+// holds the vital general info available to all requests
+struct general_info {
+
+    int prevCommand;                           // holds value of previous command that was issued (ACT, PRE, WR, RD), initialized to -1 (no previous command)
+    int timeLapsed;                            // is incremented each DIMM cycle when a command is not issued, reset to zero when a new command is issued
+    int bankGroup;                             // holds the bank group to which the previous command was issued (0-3), initialized to -1 (no previous bank)
+    unsigned int openPage[BGROUP][BANK];       // holds the value of most recently opened page (row) for each bank, has to be updated upon each ACT command,
 };
 
 struct node *front = NULL;
@@ -51,6 +81,7 @@ const char * operation[] = {
         "WRITE",
         "FETCH",
 };
+
  //------------------------------------------------------------------------------------------
 
 int main()
