@@ -5,4 +5,14 @@
 OPEN PAGE POLICY
 Page hit: Rd + burst
 Page miss: PRE + ACT + Rd + burst
-Page empty: ACT + Rd + burst
+Page empty: ACT + Rd + burst = 24 + 24 + 4 = 52*2 = 104 clocks
+
+Do incremental development
+maintain state for every bank and bank group (ie is it open
+or closed?, if open what row is it open to?, keep track of the 
+number of clock ticks since the last command of each command type that has
+been issued to that bank or bank group. for each bank or bank group, youd 
+have time since last command)
+Just worry about the head of the queue for now, then add a loop for up to
+16 things in the queue
+After this you can start optimizing
