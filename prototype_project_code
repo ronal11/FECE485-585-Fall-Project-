@@ -14,16 +14,34 @@
 #include <ctype.h>
 #include <time.h>
 
+#define MAX 16
+
 #define ACT    0               // macros for commands in order to save info
 #define PRE    1
 #define RD     2
-#define WR     3
+#define WR_C   3
 
 #define BGROUP 4               // number of bank groups
 #define BANK   4               // number of banks per bank group
 
 #define TRUE 1
 #define FALSE 0
+
+#define RC      76
+#define RAS     52
+#define RRD_L   6
+#define RRD_S   4
+#define RP      24
+#define CWL     24
+#define CL      24
+#define RCD     24
+#define WR      20
+#define RTP     12
+#define CCD_L   8
+#define CCD_S   4
+#define BURST   4
+#define WTR_L   12
+#define WTR_S   4
 
 
 // Global variable
@@ -64,17 +82,16 @@ struct node { //For the queue
 // holds the vital general info available to all requests
 typedef struct general_info {
 
-    int prevCommand;                                 // holds value of previous command that was issued (ACT, PRE, WR, RD), initialized to -1 (no previous command)
-    int timeLapsed;                                  // is incremented each DIMM cycle when a command is not issued, reset to zero when a new command is issued
-    int bankGroup;                                   // holds the bank group to which the previous command was issued (0-3), initialized to -1 (no previous bank)
-    int bank;                                        // hold the bank to which the previous command was issued to (0-3), init to -1 (no previous bank)                                        
-    unsigned int openPage[BGROUP][BANK];             // holds the value of most recently opened page (row) for each bank, has to be updated upon each ACT command, initialized to 0xFFFF (no rows open)
-    int firstAccess[BGROUP][BANK];                   // indicates whether a bank in bank group has been pre-charged, 1 = precharged, 0 = not precharged note: all banks are pre-charged to start
+    int openPage;                                   // indicates if there is a page open true=1, false=1
+    unsigned int page;                              // actual page that is opened
+    int precharged;                                 // indicates whether a bank in bank group has been pre-charged, 1 = precharged, 0 = not precharged note: all banks are pre-charged to start
+    int t_since_comnd[4];
+
 }general_info_s;
 
 struct node *front = NULL;
 struct node *rear = NULL;
-general_info_s info4All;
+
 
 
 
@@ -85,7 +102,10 @@ void dequeue();
 int readOneLine(FILE *filePointer, unsigned long long request[3]);
 int MagicHappensHere(int clk, struct node *front, int queue_size);
 hex_field_s address_map(unsigned long long address);
-general_info_s initialize_stuff();
+void initialize_stuff(general_info_s infoForALL[BGROUP][BANK]);
+
+general_info_s info4All[BGROUP][BANK];
+
 
 const char * operation[] = {
         "READ",
@@ -103,8 +123,7 @@ int main()
     FILE *filePointer; //Pointer for trace file.
     int rows = 0; //How many rows (or lines) are read from the trace file.
 
-    info4All = initialize_stuff();
-
+    initialize_stuff(info4All);
 
     //Ask for file name and store it in variable fileName.
     printf("\nEnter name of data file to read (with extension): ");
@@ -245,31 +264,23 @@ int main()
 
     while (temp != NULL)
     {
+
         if((temp->c_info.req_started) == FALSE) // if this request hasn't been started
         {
             if(temp->c_info.curr_op == 0)       // check if mem operation is a READ
             {
-                if(info4All.firstAccess[temp->map.bank_group][temp->map.bank] == 1)          // if the bank in the bank group is pre-charged
+                for(int i = 0; i < BGROUP; i++)
                 {
-                    if(info4ALL.prevCommand == ACT)                                          // if previous command to any bank group was an ACT
+                    for(int j = 0; j < BANK; j++)
                     {
-                       if(temp->map.bank_group == info4All.bankGroup)                        // if the previous ACT command issued was to the same bank group
-                       {
-                           if(temp->map.bank == info4All.bank)                               // if it's to the same bank
-                           {
-                                                                                             // check if tRC is satisified
-                           }
-                           else if(info4All.timeLapsed >= RRD_L)                                  // check if tRRD_L is satisfied
-                           {
-                                printf("ACT <%X> <%X> <%X>", temp->map.bank_group, temp->map.bank, temp->map.row);                     //issue ACT
-                                                                                                                                    //update both information structs 
-                           }
-                           else
-                            
-                       }
+                        if(info4All[i][j].openPage == temp->map.row)
+                        {
+
+                        }
                     }
                 }
             }
+
         }
         if (1) {
         printf("Clock:%-4d  REMOVED: [%4I64u] [%6s] [%11I64X]\n", clk, temp->request_info[0], operation[temp->request_info[1]], temp->request_info[2] );
@@ -286,32 +297,22 @@ int main()
     return queue_size;
  }
 
-general_info_s initialize_stuff()
+void initialize_stuff(general_info_s infoForALL[BGROUP][BANK])
 {
-     general_info_s infoForALL;            // create a struct to be shared by all requests in queue
 
      for(int i=0; i < BGROUP; i++)              // init firstAccess array to all 1's (all banks are precharged to begin)
     {
       for(int j=0; j < BANK; j++)
       {
-         infoForALL.firstAccess[i][j] = 1;
+          infoForALL[i][j].openPage = 0;                                    // no previous bank group to which a command was issued
+          infoForALL[i][j].page = 0;                                        // no previous command issued
+          infoForALL[i][j].precharged = 1;                                  // time lapsed since last command == 0
+          infoForALL[i][j].t_since_comnd[ACT] = 0;                          // no previous bank at the start of program
+          infoForALL[i][j].t_since_comnd[WR_C] = 0;
+          infoForALL[i][j].t_since_comnd[RD] = 0;
+          infoForALL[i][j].t_since_comnd[PRE] = 0;
       }
     }
-
-    for(int i=0; i < BGROUP; i++)               // intit openPage array to all 0xFFFF (no pages open)
-    {
-      for(int j=0; j < BANK; j++)
-      {
-         infoForALL.openPage[i][j] = 0xFFFF;
-      }
-    }
-
-    infoForALL.bankGroup = -1;                  // no previous bank group to which a command was issued
-    infoForALL.prevCommand = -1;                // no previous command issued
-    infoForALL.timeLapsed = 0;                  // time lapsed since last command == 0
-    infoForALL.bank = -1                        // no previous bank at the start of program
-
-    return infoForALL;
 }
 
  hex_field_s address_map(unsigned long long address) {
