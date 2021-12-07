@@ -27,21 +27,21 @@
 #define TRUE 1
 #define FALSE 0
 
-#define RC      76
-#define RAS     52
-#define RRD_L   6
-#define RRD_S   4
-#define RP      24
-#define CWL     20
-#define CL      24
-#define RCD     24
-#define WR      20
-#define RTP     12
-#define CCD_L   8
-#define CCD_S   4
+#define RC      76 //The minimum time interval between successive ACT commands to the same bank
+#define RAS     52 //number of clock cycles taken between a bank ACT command and issuing the PRE command
+#define RRD_L   6  //ACT-to-ACT minimum time period to the same bank group
+#define RRD_S   4  //ACT-to-ACT minimum time period between different bank groups
+#define RP      24 //number of clock cycles taken between the issuing of the PRE command and the ACT command
+#define CWL     20 //clock cycles between internal WR command and availability of first bit of data
+#define CL      24 //clock cycles between internal RD command and availability of first bit of data
+#define RCD     24 //number of clock cycles taken between the issuing of the active command and the read/write command
+#define WR      20 //number of clock cycles taken between writing data and issuing the PRE command
+#define RTP     12 //internal READ to PRE delay within same bank
+#define CCD_L   8  //delay between consecutive RD-to-RD or WR-to-WR command between banks in the same bank group
+#define CCD_S   4  //delay between consecutive RD-to-RD or WR-to-WR command between different bank groups
 #define BURST   4
-#define WTR_L   12
-#define WTR_S   4
+#define WTR_L   12 //delay from start of internal WR transaction to internal READ command to the same bank group
+#define WTR_S   4  //delay from start of internal WR transaction to internal READ command to a different bank group
 
 
 // Global variable
@@ -86,6 +86,7 @@ typedef struct general_info {
     unsigned int page;                              // actual page that is opened
     int precharged;                                 // indicates whether a bank in bank group has been pre-charged, 1 = precharged, 0 = not precharged note: all banks are pre-charged to start
     int t_since_comnd[4];
+    int t_since_dataWR;                             //Time since the end of valid data out (used for tWR)
 
 }general_info_s;
 
@@ -103,6 +104,12 @@ int readOneLine(FILE *filePointer, unsigned long long request[3]);
 int MagicHappensHere(int clk, int queue_size);
 hex_field_s address_map(unsigned long long address);
 void initialize_stuff(general_info_s infoForALL[BGROUP][BANK]);
+int RRD_L_func(int BG); //returns the time of the most recently used ACT command in the specified bank group
+int RRD_S_func();     //returns the time of the most recently used ACT command in all 16 banks
+int CCD_L_func(int BG, int command); //returns time of most recently used RD or WR command in the specified BG
+int CCD_S_func(int command);    //returns time of most recently used RD or WR command in all 16 banks
+int WTR_L_func(int BG); //returns most recent time since last data written in the same bank group
+int WTR_S_func();       //returns most recent time since last data written in all 16 banks
 
 general_info_s info4All[BGROUP][BANK];
 
@@ -171,7 +178,7 @@ int main()
     int queue_size = 0;
     int pendingReq = 0;
     int end_of_file = 0;
-    hex_field_s req_add_field;
+    //hex_field_s req_add_field;
 
 
     //req_add_field = address_map(0x01FF97000);
@@ -265,41 +272,74 @@ int main()
                 //check to see what bank and bank group this request is accessing
                     if (info4All[curr_BG][curr_bank].openPage == 1) { //If the bank has an open page
                         if (info4All[curr_BG][curr_bank].page == temp->map.row) {//If the open page is in the same row
-                            printf("<%-4d> RD  <0x%1X> <0x%1X> <0x%2X>\n", clk, curr_BG, curr_bank, temp->map.upper_col); //page hit so issue a RD command
-                            info4All[curr_BG][curr_bank].t_since_comnd[RD] = -1; //update time since last RD command to this bank //-1 to avoid increment at the end
-                            temp->c_info.prevCommandReq = RD; //Update previous command issued for this request
-                            temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                            temp->counter++; //increment how long the request has been in the queue
-                            temp = temp->next;
-                            break;
+                            if (CCD_L_func(curr_BG, RD) >= CCD_L) { //tCCD_L
+                                if (CCD_S_func(RD) >= CCD_S) { //tCCD_S
+                                    if (WTR_L_func(curr_BG) >= WTR_L) { //tWTR_L
+                                        if (WTR_S_func() >= WTR_S) { //tWTR_S
+                                            printf("<%-4d> RD  <0x%1X> <0x%1X> <0x%2X>\n", clk, curr_BG, curr_bank, temp->map.upper_col); //page hit so issue a RD command
+                                            info4All[curr_BG][curr_bank].t_since_comnd[RD] = -1; //update time since last RD command to this bank //-1 to avoid increment at the end
+                                            temp->c_info.prevCommandReq = RD; //Update previous command issued for this request
+                                            temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                            temp->counter++; //increment how long the request has been in the queue
+                                            temp = temp->next;
+                                            break;
+                                        }
+                                        else {temp->c_info.timeLapsedReq++;}
+                                    }
+                                    else {temp->c_info.timeLapsedReq++;}
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
                         }
                         else {
-                            printf("<%-4d> PRE <0x%1X> <0x%1X>\n", clk, curr_BG, curr_bank); //page miss so issue a PRE command
-                            info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
-                            temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
-                            temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                            temp->counter++; //increment how long the request has been in the queue
-                            temp = temp->next;
-                            break;
+                            if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
+                                if (info4All[curr_BG][curr_bank].t_since_comnd[RD] >= RTP) { //tRTP
+                                    printf("<%-4d> PRE <0x%1X> <0x%1X>\n", clk, curr_BG, curr_bank); //page miss so issue a PRE command
+                                    info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
+                                    temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
+                                    temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                    temp->counter++; //increment how long the request has been in the queue
+                                    temp = temp->next;
+                                    break;
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
                         }
                     }
                     else if (info4All[curr_BG][curr_bank].precharged == 1) {//is the bank precharged?
-                        printf("<%-4d> ACT <0x%1X> <0x%1X> <0x%4X>\n", clk, curr_BG, curr_bank, temp->map.row); //page empty so issue an ACT command
-                        info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
-                        temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
-                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                        temp->counter++; //increment how long the request has been in the queue
-                        temp = temp->next;
-                        break;
+                        if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
+                            if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
+                                if (RRD_S_func() >= RRD_S) { //tRRD_S
+                                    printf("<%-4d> ACT <0x%1X> <0x%1X> <0x%4X>\n", clk, curr_BG, curr_bank, temp->map.row); //page empty so issue an ACT command
+                                    info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
+                                    temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
+                                    temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                    temp->counter++; //increment how long the request has been in the queue
+                                    temp = temp->next;
+                                    break;
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
+                        }
+                        else {temp->c_info.timeLapsedReq++;}
                     }
                     else {//Bank is not pre charged
-                        printf("<%-4d> PRE <0x%1X> <0x%1X>\n", clk, curr_BG, curr_bank); //issue a PRE command for the bank
-                        info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
-                        temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
-                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                        temp->counter++; //increment how long the request has been in the queue
-                        temp = temp->next;
-                        break;
+                        if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
+                            if (info4All[curr_BG][curr_bank].t_since_comnd[RD] >= RTP) { //tRTP
+                                printf("<%-4d> PRE <0x%1X> <0x%1X>\n", clk, curr_BG, curr_bank); //issue a PRE command for the bank
+                                info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
+                                temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
+                                temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                temp->counter++; //increment how long the request has been in the queue
+                                temp = temp->next;
+                                break;
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
+                        }
+                        else {temp->c_info.timeLapsedReq++;}
                     }
             }
             else { //a command has already been issued for this request
@@ -313,28 +353,49 @@ int main()
                 }
                 if (temp->c_info.prevCommandReq == PRE) {
                     if (temp->c_info.timeLapsedReq >= RP){ //wait RP and then issue an ACT command
-                        printf("<%-4d> ACT <0x%1X> <0x%1X> <0x%4X>\n", clk, curr_BG, curr_bank, temp->map.row);
-                        info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
-                        info4All[curr_BG][curr_bank].precharged = 1; //bank is now precharged
-                        temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
-                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                        temp->counter++; //increment how long the request has been in the queue
-                        temp = temp->next;
-                        break;
+                        if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
+                            if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
+                                if (RRD_S_func() >= RRD_S) { //tRRD_S
+                                    printf("<%-4d> ACT <0x%1X> <0x%1X> <0x%4X>\n", clk, curr_BG, curr_bank, temp->map.row);
+                                    info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
+                                    info4All[curr_BG][curr_bank].precharged = 1; //bank is now precharged
+                                    temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
+                                    temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                    temp->counter++; //increment how long the request has been in the queue
+                                    temp = temp->next;
+                                    break;
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
+                        }
+                        else {temp->c_info.timeLapsedReq++;}
                     }
                     else {temp->c_info.timeLapsedReq++;} //Increment the time lapsed since the last command issued for the current request in the queue
                 }
                 if (temp->c_info.prevCommandReq == ACT) {
                     if (temp->c_info.timeLapsedReq >= RCD){ //wait RCD and then issue a RD command
-                        printf("<%-4d> RD  <0x%1X> <0x%1X> <0x%2X>\n", clk, curr_BG, curr_bank, temp->map.upper_col);
-                        info4All[curr_BG][curr_bank].t_since_comnd[RD] = -1; //update time since last RD command to this bank //-1 to avoid increment at the end
-                        info4All[curr_BG][curr_bank].openPage = 1; //there is now an open page
-                        info4All[curr_BG][curr_bank].page = temp->map.row;
-                        temp->c_info.prevCommandReq = RD; //Update previous command issued for this request
-                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                        temp->counter++; //increment how long the request has been in the queue
-                        temp = temp->next;
-                        break;
+                        if (CCD_L_func(curr_BG, RD) >= CCD_L) { //tCCD_L
+                            if (CCD_S_func(RD) >= CCD_S) { //tCCD_S
+                                if (WTR_L_func(curr_BG) >= WTR_L) { //tWTR_L
+                                    if (WTR_S_func() >= WTR_S) { //tWTR_S
+                                        printf("<%-4d> RD  <0x%1X> <0x%1X> <0x%2X>\n", clk, curr_BG, curr_bank, temp->map.upper_col);
+                                        info4All[curr_BG][curr_bank].t_since_comnd[RD] = -1; //update time since last RD command to this bank //-1 to avoid increment at the end
+                                        info4All[curr_BG][curr_bank].openPage = 1; //there is now an open page
+                                        info4All[curr_BG][curr_bank].page = temp->map.row;
+                                        temp->c_info.prevCommandReq = RD; //Update previous command issued for this request
+                                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                        temp->counter++; //increment how long the request has been in the queue
+                                        temp = temp->next;
+                                        break;
+                                    }
+                                    else {temp->c_info.timeLapsedReq++;}
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
+                        }
+                        else {temp->c_info.timeLapsedReq++;}
                     }
                     else {temp->c_info.timeLapsedReq++;} //Increment the time lapsed since the last command issued for the current request in the queue
                 }
@@ -346,46 +407,74 @@ int main()
                 //check to see what bank and bank group this request is accessing
                     if (info4All[curr_BG][curr_bank].openPage == 1) { //If the bank has an open page
                         if (info4All[curr_BG][curr_bank].page == temp->map.row) {//If the open page is in the same row
-                            printf("<%-4d> WR  <0x%1X> <0x%1X> <0x%2X>\n", clk, curr_BG, curr_bank, temp->map.upper_col); //page hit so issue a WR command
-                            info4All[curr_BG][curr_bank].t_since_comnd[WR_C] = -1; //update time since last WR command to this bank //-1 to avoid increment at the end
-                            temp->c_info.prevCommandReq = WR_C; //Update previous command issued for this request
-                            temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                            temp->counter++; //increment how long the request has been in the queue
-                            temp = temp->next;
-                            break;
+                            if (CCD_L_func(curr_BG, WR_C) >= CCD_L) { //tCCD_L
+                                if (CCD_S_func(WR_C) >= CCD_S) { //tCCD_S
+                                    printf("<%-4d> WR  <0x%1X> <0x%1X> <0x%2X>\n", clk, curr_BG, curr_bank, temp->map.upper_col); //page hit so issue a WR command
+                                    info4All[curr_BG][curr_bank].t_since_comnd[WR_C] = -1; //update time since last WR command to this bank //-1 to avoid increment at the end
+                                    temp->c_info.prevCommandReq = WR_C; //Update previous command issued for this request
+                                    temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                    temp->counter++; //increment how long the request has been in the queue
+                                    temp = temp->next;
+                                    break;
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
                         }
                         else {
-                            printf("<%-4d> PRE <0x%1X> <0x%1X>\n", clk, curr_BG, curr_bank); //page miss so issue a PRE command
-                            info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
-                            temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
-                            temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                            temp->counter++; //increment how long the request has been in the queue
-                            temp = temp->next;
-                            break;
+                            if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
+                                if (info4All[curr_BG][curr_bank].t_since_dataWR >= WR) { //tWR
+                                    printf("<%-4d> PRE <0x%1X> <0x%1X>\n", clk, curr_BG, curr_bank); //page miss so issue a PRE command
+                                    info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
+                                    temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
+                                    temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                    temp->counter++; //increment how long the request has been in the queue
+                                    temp = temp->next;
+                                    break;
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
                         }
                     }
                     else if (info4All[curr_BG][curr_bank].precharged == 1) {//is the bank precharged?
-                        printf("<%-4d> ACT <0x%1X> <0x%1X> <0x%4X>\n", clk, curr_BG, curr_bank, temp->map.row); //page empty so issue an ACT command
-                        info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
-                        temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
-                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                        temp->counter++; //increment how long the request has been in the queue
-                        temp = temp->next;
-                        break;
+                        if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
+                            if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
+                                if (RRD_S_func() >= RRD_S) { //tRRD_S
+                                    printf("<%-4d> ACT <0x%1X> <0x%1X> <0x%4X>\n", clk, curr_BG, curr_bank, temp->map.row); //page empty so issue an ACT command
+                                    info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
+                                    temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
+                                    temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                    temp->counter++; //increment how long the request has been in the queue
+                                    temp = temp->next;
+                                    break;
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
+                        }
+                        else {temp->c_info.timeLapsedReq++;}
                     }
                     else {//Bank is not pre charged
-                        printf("<%-4d> PRE <0x%1X> <0x%1X>\n", clk, curr_BG, curr_bank); //issue a PRE command for the bank
-                        info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
-                        temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
-                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                        temp->counter++; //increment how long the request has been in the queue
-                        temp = temp->next;
-                        break;
+                        if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
+                            if (info4All[curr_BG][curr_bank].t_since_dataWR >= WR) { //tWR
+                                printf("<%-4d> PRE <0x%1X> <0x%1X>\n", clk, curr_BG, curr_bank); //issue a PRE command for the bank
+                                info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
+                                temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
+                                temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                temp->counter++; //increment how long the request has been in the queue
+                                temp = temp->next;
+                                break;
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
+                        }
+                        else {temp->c_info.timeLapsedReq++;}
                     }
             }
             else { //a command has already been issued for this request
                 if (temp->c_info.prevCommandReq == WR_C)  {
                     if (temp->c_info.timeLapsedReq >= (CWL + BURST)) { //wait CWL + burst time then dequeue request
+                        info4All[curr_BG][curr_bank].t_since_dataWR = 0;
                         printf("Clock:%-4d  REMOVED: [%4I64u] [%6s] [%11I64X]\n", clk, temp->request_info[0], operation[temp->request_info[1]], temp->request_info[2] );
                         dequeue();
                         queue_size--;
@@ -394,28 +483,43 @@ int main()
                 }
                 if (temp->c_info.prevCommandReq == PRE) {
                     if (temp->c_info.timeLapsedReq >= RP){ //wait RP and then issue an ACT command
-                        printf("<%-4d> ACT <0x%1X> <0x%1X> <0x%4X>\n", clk, curr_BG, curr_bank, temp->map.row);
-                        info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
-                        info4All[curr_BG][curr_bank].precharged = 1; //bank is now precharged
-                        temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
-                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                        temp->counter++; //increment how long the request has been in the queue
-                        temp = temp->next;
-                        break;
+                        if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
+                            if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
+                                if (RRD_S_func() >= RRD_S) { //tRRD_S
+                                    printf("<%-4d> ACT <0x%1X> <0x%1X> <0x%4X>\n", clk, curr_BG, curr_bank, temp->map.row);
+                                    info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
+                                    info4All[curr_BG][curr_bank].precharged = 1; //bank is now precharged
+                                    temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
+                                    temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                    temp->counter++; //increment how long the request has been in the queue
+                                    temp = temp->next;
+                                    break;
+                                }
+                                else {temp->c_info.timeLapsedReq++;}
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
+                        }
+                        else {temp->c_info.timeLapsedReq++;}
                     }
                     else {temp->c_info.timeLapsedReq++;} //Increment the time lapsed since the last command issued for the current request in the queue
                 }
                 if (temp->c_info.prevCommandReq == ACT) {
                     if (temp->c_info.timeLapsedReq >= RCD){ //wait RCD and then issue a RD command
-                        printf("<%-4d> WR  <0x%1X> <0x%1X> <0x%2X>\n", clk, curr_BG, curr_bank, temp->map.upper_col);
-                        info4All[curr_BG][curr_bank].t_since_comnd[WR_C] = -1; //update time since last WR command to this bank //-1 to avoid increment at the end
-                        info4All[curr_BG][curr_bank].openPage = 1; //there is now an open page
-                        info4All[curr_BG][curr_bank].page = temp->map.row;
-                        temp->c_info.prevCommandReq = WR_C; //Update previous command issued for this request
-                        temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
-                        temp->counter++; //increment how long the request has been in the queue
-                        temp = temp->next;
-                        break;
+                        if (CCD_L_func(curr_BG, WR_C) >= CCD_L) { //tCCD_L
+                            if (CCD_S_func(WR_C) >= CCD_S) { //tCCD_S
+                                printf("<%-4d> WR  <0x%1X> <0x%1X> <0x%2X>\n", clk, curr_BG, curr_bank, temp->map.upper_col);
+                                info4All[curr_BG][curr_bank].t_since_comnd[WR_C] = -1; //update time since last WR command to this bank //-1 to avoid increment at the end
+                                info4All[curr_BG][curr_bank].openPage = 1; //there is now an open page
+                                info4All[curr_BG][curr_bank].page = temp->map.row;
+                                temp->c_info.prevCommandReq = WR_C; //Update previous command issued for this request
+                                temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
+                                temp->counter++; //increment how long the request has been in the queue
+                                temp = temp->next;
+                                break;
+                            }
+                            else {temp->c_info.timeLapsedReq++;}
+                        }
+                        else {temp->c_info.timeLapsedReq++;}
                     }
                     else {temp->c_info.timeLapsedReq++;} //Increment the time lapsed since the last command issued for the current request in the queue
                 }
@@ -437,6 +541,7 @@ int main()
             info4All[i][j].t_since_comnd[WR_C]++;
             info4All[i][j].t_since_comnd[RD]++;
             info4All[i][j].t_since_comnd[PRE]++;
+            info4All[i][j].t_since_dataWR++;
         }
     }
 
@@ -457,6 +562,7 @@ void initialize_stuff(general_info_s infoForALL[BGROUP][BANK])
           infoForALL[i][j].t_since_comnd[WR_C] = 1000;
           infoForALL[i][j].t_since_comnd[RD] = 1000;
           infoForALL[i][j].t_since_comnd[PRE] = 1000;
+          infoForALL[i][j].t_since_dataWR = 1000;
       }
     }
 }
@@ -487,7 +593,7 @@ void initialize_stuff(general_info_s infoForALL[BGROUP][BANK])
     nptr->c_info.curr_op = request[1];      // fill what type of request it is read, write, fetch
     nptr->c_info.origin_arrival = clk;      // fill when it was requested by CPU
     nptr->c_info.prevCommandReq = -1;       // set to -1,(no previous command)
-    nptr->c_info.timeLapsedReq = 0;         // set time lapsed since previous command issued to 0
+    nptr->c_info.timeLapsedReq = 1000;         // set time lapsed since previous command issued to 0
     nptr->c_info.req_started = FALSE;       // request has not been started
 
     nptr->map = address_map(request[2]);    // map address
@@ -503,6 +609,81 @@ void initialize_stuff(general_info_s infoForALL[BGROUP][BANK])
         rear->next = nptr;
         rear = rear->next;
     }
+}
+
+int RRD_L_func(int BG) {
+    int most_recent_ACT = info4All[BG][0].t_since_comnd[ACT];
+    if (info4All[BG][1].t_since_comnd[ACT] < most_recent_ACT) {
+        most_recent_ACT = info4All[BG][1].t_since_comnd[ACT];
+    }
+    if (info4All[BG][2].t_since_comnd[ACT] < most_recent_ACT) {
+        most_recent_ACT = info4All[BG][2].t_since_comnd[ACT];
+    }
+    if (info4All[BG][3].t_since_comnd[ACT] < most_recent_ACT) {
+        most_recent_ACT = info4All[BG][3].t_since_comnd[ACT];
+    }
+    return most_recent_ACT;
+}
+
+int RRD_S_func() {
+    int most_recent_ACT = info4All[0][0].t_since_comnd[ACT];
+    for (int i = 0; i < 4; i++) {
+        for (int k = 0; k < 4; k++) {
+            if (info4All[i][k].t_since_comnd[ACT] < most_recent_ACT) {
+                most_recent_ACT = info4All[i][k].t_since_comnd[ACT];
+            }
+        }
+    }
+    return most_recent_ACT;
+}
+
+int CCD_L_func(int BG, int command) {
+    //command = 2 for RD, command = 3 for WR
+    int most_recent = info4All[BG][0].t_since_comnd[command];
+
+    for (int i = 1; i < 4; i++) {
+        if (info4All[BG][i].t_since_comnd[command] < most_recent) {
+            most_recent = info4All[BG][i].t_since_comnd[command];
+        }
+    }
+
+    return most_recent;
+}
+
+int CCD_S_func(int command) {
+    //command = 2 for RD, command = 3 for WR_C
+    int most_recent = info4All[0][0].t_since_comnd[command];
+
+    for (int i = 0; i < 4; i++) {
+        for (int k = 0; k < 4; k++) {
+            if (info4All[i][k].t_since_comnd[command] < most_recent) {
+                most_recent = info4All[i][k].t_since_comnd[command];
+            }
+        }
+    }
+    return most_recent;
+}
+
+int WTR_L_func(int BG) {
+    int most_recent = info4All[BG][0].t_since_dataWR;
+    for (int i = 1; i < 4; i++) {
+        if (info4All[BG][i].t_since_dataWR < most_recent) {
+            most_recent = info4All[BG][i].t_since_dataWR;
+        }
+    }
+    return most_recent;
+}
+
+int WTR_S_func() {
+    int most_recent = info4All[0][0].t_since_dataWR;
+    for (int i = 0; i < 4; i++) {
+        for (int k = 0; k < 4; k++) {
+            if (info4All[i][k].t_since_dataWR < most_recent) {
+                most_recent = info4All[i][k].t_since_dataWR;
+            }
+        }
+    }
+    return most_recent;
 }
 
 void display()
