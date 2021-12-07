@@ -264,11 +264,12 @@ int main()
     unsigned int curr_BG, curr_bank; //current request's bank and bank group
 
     while (temp != NULL) {
+    //printf("--%d--\n", clk);
     curr_BG = temp->map.bank_group;
     curr_bank = temp->map.bank;
         if (temp->request_info[1] == 0 || temp->request_info[1] == 2) { //If the request is a READ or INST. FETCH operation
             if (temp->c_info.req_started == FALSE) { //If no command has been issued for this request yet
-                temp->c_info.req_started = TRUE;
+                //temp->c_info.req_started = TRUE;
                 //check to see what bank and bank group this request is accessing
                     if (info4All[curr_BG][curr_bank].openPage == 1) { //If the bank has an open page
                         if (info4All[curr_BG][curr_bank].page == temp->map.row) {//If the open page is in the same row
@@ -281,6 +282,7 @@ int main()
                                             temp->c_info.prevCommandReq = RD; //Update previous command issued for this request
                                             temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
                                             temp->counter++; //increment how long the request has been in the queue
+                                            temp->c_info.req_started = TRUE;
                                             temp = temp->next;
                                             break;
                                         }
@@ -300,6 +302,7 @@ int main()
                                     temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
                                     temp->counter++; //increment how long the request has been in the queue
+                                    temp->c_info.req_started = TRUE;
                                     temp = temp->next;
                                     break;
                                 }
@@ -308,7 +311,7 @@ int main()
                             else {temp->c_info.timeLapsedReq++;}
                         }
                     }
-                    else if (info4All[curr_BG][curr_bank].precharged == 1) {//is the bank precharged?
+                    else if (info4All[curr_BG][curr_bank].precharged == 1) {//is the bank precharged?-------------------------------------
                         if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
                             if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
                                 if (RRD_S_func() >= RRD_S) { //tRRD_S
@@ -317,6 +320,7 @@ int main()
                                     temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
                                     temp->counter++; //increment how long the request has been in the queue
+                                    temp->c_info.req_started = TRUE;
                                     temp = temp->next;
                                     break;
                                 }
@@ -325,6 +329,7 @@ int main()
                             else {temp->c_info.timeLapsedReq++;}
                         }
                         else {temp->c_info.timeLapsedReq++;}
+                        //good!!!!
                     }
                     else {//Bank is not pre charged
                         if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
@@ -334,6 +339,7 @@ int main()
                                 temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
                                 temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
                                 temp->counter++; //increment how long the request has been in the queue
+                                temp->c_info.req_started = TRUE;
                                 temp = temp->next;
                                 break;
                             }
@@ -403,7 +409,6 @@ int main()
         }
         else if (temp->request_info[1] == 1) { //If the request is a WRITE operation
             if (temp->c_info.req_started == FALSE) { //If no command has been issued for this request yet
-                temp->c_info.req_started = TRUE;
                 //check to see what bank and bank group this request is accessing
                     if (info4All[curr_BG][curr_bank].openPage == 1) { //If the bank has an open page
                         if (info4All[curr_BG][curr_bank].page == temp->map.row) {//If the open page is in the same row
@@ -414,6 +419,7 @@ int main()
                                     temp->c_info.prevCommandReq = WR_C; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
                                     temp->counter++; //increment how long the request has been in the queue
+                                    temp->c_info.req_started = TRUE;
                                     temp = temp->next;
                                     break;
                                 }
@@ -429,6 +435,7 @@ int main()
                                     temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
                                     temp->counter++; //increment how long the request has been in the queue
+                                    temp->c_info.req_started = TRUE;
                                     temp = temp->next;
                                     break;
                                 }
@@ -446,6 +453,7 @@ int main()
                                     temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
                                     temp->counter++; //increment how long the request has been in the queue
+                                    temp->c_info.req_started = TRUE;
                                     temp = temp->next;
                                     break;
                                 }
@@ -463,6 +471,7 @@ int main()
                                 temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
                                 temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
                                 temp->counter++; //increment how long the request has been in the queue
+                                temp->c_info.req_started = TRUE;
                                 temp = temp->next;
                                 break;
                             }
@@ -476,8 +485,10 @@ int main()
                     if (temp->c_info.timeLapsedReq >= (CWL + BURST)) { //wait CWL + burst time then dequeue request
                         info4All[curr_BG][curr_bank].t_since_dataWR = 0;
                         printf("Clock:%-4d  REMOVED: [%4I64u] [%6s] [%11I64X]\n", clk, temp->request_info[0], operation[temp->request_info[1]], temp->request_info[2] );
+                        temp = temp->next;
                         dequeue();
                         queue_size--;
+                        continue;
                     }
                     else {temp->c_info.timeLapsedReq++;} //Increment the time lapsed since the last command issued for the current request in the queue
                 }
