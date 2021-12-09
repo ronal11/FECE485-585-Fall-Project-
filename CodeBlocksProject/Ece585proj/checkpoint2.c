@@ -95,8 +95,8 @@ struct node *rear = NULL;
 void display();
 void enqueue(unsigned long long[], int);
 void dequeue();
-int readOneLine(FILE *filePointer, unsigned long long request[3]);
-int MagicHappensHere(int clk, int queue_size);
+int readOneLine(FILE *filePointerIn, unsigned long long request[3]);
+int MagicHappensHere(FILE *filePointerOut, int clk, int queue_size);
 hex_field_s address_map(unsigned long long address);
 void initialize_stuff(general_info_s infoForALL[BGROUP][BANK]);
 int RRD_L_func(int BG); //returns the time of the most recently used ACT command in the specified bank group
@@ -122,19 +122,31 @@ int main()
     unsigned long long request[3]; //Variable to hold one row/line with info of <time><operation><hexadecimal address>.
     char fileName[50]; //string to hold user's file name input.
     char response[10]; //character to hold user option for debugging
-    FILE *filePointer; //Pointer for trace file.
+    FILE *filePointerIn; //Pointer for input trace file.
+    FILE *filePointerOut; //Pointer for output trace file.
     int rows = 0; //How many rows (or lines) are read from the trace file.
 
     initialize_stuff(info4All);
 
-    //Ask for file name and store it in variable fileName.
-    printf("\nEnter name of data file to read (with extension): ");
+    //Ask for input file name and store it in variable fileName.
+    printf("\nEnter name of input data file to read (with extension): ");
     if (fgets(fileName, 50, stdin) != NULL) {
         fileName[strcspn(fileName, "\n")] = 0; //Get rid of new line.
     }
 
-    if ((filePointer = fopen(fileName, "r")) == NULL) {
+    if ((filePointerIn = fopen(fileName, "r")) == NULL) {
         printf("ERROR: Could not open input file.\n");
+        return(1); //Quit program
+    }
+
+    //Ask for output file name and store it in variable fileName.
+    printf("\nEnter name of output data file to write (with extension): ");
+    if (fgets(fileName, 50, stdin) != NULL) {
+        fileName[strcspn(fileName, "\n")] = 0; //Get rid of new line.
+    }
+
+    if ((filePointerOut = fopen(fileName, "w")) == NULL) {
+        printf("ERROR: Could not open output file.\n");
         return(1); //Quit program
     }
 
@@ -155,7 +167,7 @@ int main()
         return(2); //Quit
     }
 
-    while ( readOneLine(filePointer, request) == 0) {
+    while ( readOneLine(filePointerIn, request) == 0) {
         if (DEBUG) {
             printf("%I64u, %I64u, %I64X\n", request[0], request[1], request[2]);
         }
@@ -165,7 +177,7 @@ int main()
         printf("%d lines read in total!\n", rows);
     }
 
-    fseek(filePointer, 0, SEEK_SET); //Reset file pointer to top of file to read through again.
+    fseek(filePointerIn, 0, SEEK_SET); //Reset file pointer to top of file to read through again.
 
     //Begin clock cycles.
     clk = 0;
@@ -176,7 +188,7 @@ int main()
     while (1) {
         if (queue_size < 16) {  //If the queue is not full
             if (pendingReq == 0) { //If no pending request
-                if (readOneLine(filePointer, request) == 0) { //Next request is read from file
+                if (readOneLine(filePointerIn, request) == 0) { //Next request is read from file
                     pendingReq = 1;
                 }
                 else { //EOF is reached
@@ -202,7 +214,7 @@ int main()
         if (queue_size > 0) { //If queue is not empty
             if ((clk % 2) == 0)             // service requests on each DIMM cycle, 2 clk = 1 DIMM
             {
-                queue_size = MagicHappensHere(clk, queue_size);
+                queue_size = MagicHappensHere(filePointerOut, clk, queue_size);
             }
             clk++;
         }
@@ -213,12 +225,13 @@ int main()
     }
     if (DEBUG) {printf("program complete\n");}
 
-    fclose(filePointer);
+    fclose(filePointerIn);
+    fclose(filePointerOut);
 
     return 0;
 }
 
- int readOneLine(FILE *filePointer, unsigned long long request[3]) {
+ int readOneLine(FILE *filePointerIn, unsigned long long request[3]) {
     //This function reads an input file and extracts one line (the next line in the file) everytime it is called.
     // This line is temporarily held in request.
     //The text file has the format <time><operation><hexadecimal address>.
@@ -227,7 +240,7 @@ int main()
     char lineValue[30]; //This string will hold a single line at a time in the text file.
     unsigned long long hexNum; //This variable is 64bits to read the hex value from the text file.
 
-        if (fgets(lineValue, 30, filePointer) != NULL) {
+        if (fgets(lineValue, 30, filePointerIn) != NULL) {
             char *token = strtok(lineValue, " "); //Create a pointer called token to hold the individual items in the string array
                                                // from a single line.  This will create 3 separated tokens for time, operation, & hex address.
             int k = 0;  //This variable indicates the column index (are we reading time, operation, or hex address?).
@@ -248,7 +261,7 @@ int main()
         }
  }
 
- int MagicHappensHere(int clk, int queue_size) {
+ int MagicHappensHere(FILE *filePointerOut, int clk, int queue_size) {
     struct node *temp;
     temp = front;
     unsigned int curr_BG, curr_bank; //current request's bank and bank group
@@ -265,7 +278,7 @@ int main()
                                 if (CCD_S_func(RD) >= CCD_S) { //tCCD_S
                                     if (WTR_L_func(curr_BG) >= WTR_L) { //tWTR_L
                                         if (WTR_S_func() >= WTR_S) { //tWTR_S
-                                            printf("%-5d RD  %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.upper_col); //page hit so issue a RD command
+                                            fprintf(filePointerOut,"%-5d RD  %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.upper_col); //page hit so issue a RD command
                                             info4All[curr_BG][curr_bank].t_since_comnd[RD] = -1; //update time since last RD command to this bank //-1 to avoid increment at the end
                                             temp->c_info.prevCommandReq = RD; //Update previous command issued for this request
                                             temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
@@ -285,7 +298,7 @@ int main()
                         else {
                             if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
                                 if (info4All[curr_BG][curr_bank].t_since_comnd[RD] >= RTP) { //tRTP
-                                    printf("%-5d PRE %1X %1X\n", clk, curr_BG, curr_bank); //page miss so issue a PRE command
+                                    fprintf(filePointerOut, "%-5d PRE %1X %1X\n", clk, curr_BG, curr_bank); //page miss so issue a PRE command
                                     info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
                                     temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
@@ -303,7 +316,7 @@ int main()
                         if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
                             if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
                                 if (RRD_S_func() >= RRD_S) { //tRRD_S
-                                    printf("%-5d ACT %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.row); //page empty so issue an ACT command
+                                    fprintf(filePointerOut,"%-5d ACT %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.row); //page empty so issue an ACT command
                                     info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
                                     temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
@@ -321,7 +334,7 @@ int main()
                     else {//Bank is not pre charged
                         if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
                             if (info4All[curr_BG][curr_bank].t_since_comnd[RD] >= RTP) { //tRTP
-                                printf("%-5d PRE %1X %1X\n", clk, curr_BG, curr_bank); //issue a PRE command for the bank
+                                fprintf(filePointerOut,"%-5d PRE %1X %1X\n", clk, curr_BG, curr_bank); //issue a PRE command for the bank
                                 info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
                                 temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
                                 temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
@@ -351,7 +364,7 @@ int main()
                         if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
                             if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
                                 if (RRD_S_func() >= RRD_S) { //tRRD_S
-                                    printf("%-5d ACT %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.row);
+                                    fprintf(filePointerOut,"%-5d ACT %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.row);
                                     info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
                                     info4All[curr_BG][curr_bank].precharged = 1; //bank is now precharged
                                     temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
@@ -374,7 +387,7 @@ int main()
                             if (CCD_S_func(RD) >= CCD_S) { //tCCD_S
                                 if (WTR_L_func(curr_BG) >= WTR_L) { //tWTR_L
                                     if (WTR_S_func() >= WTR_S) { //tWTR_S
-                                        printf("%-5d RD  %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.upper_col);
+                                        fprintf(filePointerOut,"%-5d RD  %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.upper_col);
                                         info4All[curr_BG][curr_bank].t_since_comnd[RD] = -1; //update time since last RD command to this bank //-1 to avoid increment at the end
                                         info4All[curr_BG][curr_bank].openPage = 1; //there is now an open page
                                         info4All[curr_BG][curr_bank].page = temp->map.row;
@@ -403,7 +416,7 @@ int main()
                         if (info4All[curr_BG][curr_bank].page == temp->map.row) {//If the open page is in the same row
                             if (CCD_L_func(curr_BG, WR_C) >= CCD_L) { //tCCD_L
                                 if (CCD_S_func(WR_C) >= CCD_S) { //tCCD_S
-                                    printf("%-5d WR  %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.upper_col); //page hit so issue a WR command
+                                    fprintf(filePointerOut,"%-5d WR  %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.upper_col); //page hit so issue a WR command
                                     info4All[curr_BG][curr_bank].t_since_comnd[WR_C] = -1; //update time since last WR command to this bank //-1 to avoid increment at the end
                                     temp->c_info.prevCommandReq = WR_C; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
@@ -419,7 +432,7 @@ int main()
                         else {
                             if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
                                 if (info4All[curr_BG][curr_bank].t_since_dataWR >= WR) { //tWR
-                                    printf("%-5d PRE %1X %1X\n", clk, curr_BG, curr_bank); //page miss so issue a PRE command
+                                    fprintf(filePointerOut,"%-5d PRE %1X %1X\n", clk, curr_BG, curr_bank); //page miss so issue a PRE command
                                     info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
                                     temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
@@ -437,7 +450,7 @@ int main()
                         if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
                             if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
                                 if (RRD_S_func() >= RRD_S) { //tRRD_S
-                                    printf("%-5d ACT %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.row); //page empty so issue an ACT command
+                                    fprintf(filePointerOut,"%-5d ACT %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.row); //page empty so issue an ACT command
                                     info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
                                     temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
                                     temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
@@ -455,7 +468,7 @@ int main()
                     else {//Bank is not pre charged
                         if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RAS) { //tRAS
                             if (info4All[curr_BG][curr_bank].t_since_dataWR >= WR) { //tWR
-                                printf("%-5d PRE %1X %1X\n", clk, curr_BG, curr_bank); //issue a PRE command for the bank
+                                fprintf(filePointerOut,"%-5d PRE %1X %1X\n", clk, curr_BG, curr_bank); //issue a PRE command for the bank
                                 info4All[curr_BG][curr_bank].t_since_comnd[PRE] = -1; //update time since last PRE command to this bank //-1 to avoid increment at the end
                                 temp->c_info.prevCommandReq = PRE; //Update previous command issued for this request
                                 temp->c_info.timeLapsedReq = 0; //The time lapsed since the last command issued is reset to zero
@@ -488,7 +501,7 @@ int main()
                         if (info4All[curr_BG][curr_bank].t_since_comnd[ACT] >= RC) { //tRC
                             if (RRD_L_func(curr_BG) >= RRD_L) { //tRRD_L
                                 if (RRD_S_func() >= RRD_S) { //tRRD_S
-                                    printf("%-5d ACT %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.row);
+                                    fprintf(filePointerOut,"%-5d ACT %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.row);
                                     info4All[curr_BG][curr_bank].t_since_comnd[ACT] = -1; //update time since last ACT command to this bank //-1 to avoid increment at the end
                                     info4All[curr_BG][curr_bank].precharged = 1; //bank is now precharged
                                     temp->c_info.prevCommandReq = ACT; //Update previous command issued for this request
@@ -509,7 +522,7 @@ int main()
                     if (temp->c_info.timeLapsedReq >= RCD){ //wait RCD and then issue a RD command
                         if (CCD_L_func(curr_BG, WR_C) >= CCD_L) { //tCCD_L
                             if (CCD_S_func(WR_C) >= CCD_S) { //tCCD_S
-                                printf("%-5d WR  %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.upper_col);
+                                fprintf(filePointerOut,"%-5d WR  %1X %1X %X\n", clk, curr_BG, curr_bank, temp->map.upper_col);
                                 info4All[curr_BG][curr_bank].t_since_comnd[WR_C] = -1; //update time since last WR command to this bank //-1 to avoid increment at the end
                                 info4All[curr_BG][curr_bank].openPage = 1; //there is now an open page
                                 info4All[curr_BG][curr_bank].page = temp->map.row;
