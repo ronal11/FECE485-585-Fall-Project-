@@ -1,10 +1,10 @@
 /**
- * checkpoint1.c - Check point 1 for ECE585 project
+ * mem_controller.c - Final memory controller code for ECE585 FA21 project
  *
- * Name: Team 8 - Jonathan S, Dang N, Ronaldo L, Mousa A
+ * Name: Team 8 - Jonathan S, Dang N, Ronaldo L
  * Date:   October, 2021
  *
- * This code implements a micro-controller and the commands send to a DIMM
+ * This code implements and simulates a micro-controller and the commands sent to a DIMM
  */
 
 #include <stdio.h>
